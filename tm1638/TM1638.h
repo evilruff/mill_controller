@@ -45,11 +45,13 @@
 
 #define FONT_MAX 24
 
-template <typename StbPin, typename ClkPin, typename DioPin> class TM1638
+template <typename StbPin, typename ClkPin, typename DioPin, typename ButtonPort, typename LedPort> class TM1638
 {
 	public:
 	
-	TM1638() {};
+	TM1638() {
+		m_ledState = 0;
+	};
 
 	
 	void init(uint8_t brightness = 7) {
@@ -126,7 +128,21 @@ template <typename StbPin, typename ClkPin, typename DioPin> class TM1638
 		setAddress(digit * 2, data);
 	};
 
-
+	void	tick() {
+		readButtons();
+		
+		
+		uint8_t mask = 0x01;
+		for (uint8_t i=0;i<8;i++) {
+			if ((LedPort::value & mask) ^ ( m_ledState & mask)) {
+				setLED(i, LedPort::value & mask);
+			}
+			mask <<= 1;
+		}
+		
+		m_ledState = LedPort::value;
+		
+	}
 	uint8_t readButtons() {
 		StbPin::set_low();
 
@@ -141,8 +157,10 @@ template <typename StbPin, typename ClkPin, typename DioPin> class TM1638
 		current_button_state = current_button_state | (shiftIn<DioPin, ClkPin>(LSBFIRST)) << 3;
 		
 		DioPin::make_output();
-
 		StbPin::set_high();
+		
+		ButtonPort::port(~current_button_state);
+		
 		return current_button_state;
 	};
 
@@ -155,7 +173,8 @@ template <typename StbPin, typename ClkPin, typename DioPin> class TM1638
 		StbPin::set_high();
 		
 	};
-
+	
+	uint8_t		m_ledState;
 };
 
 #endif

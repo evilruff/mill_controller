@@ -67,6 +67,29 @@ struct PortD
 	static void dir(uint8_t v) { DDRD = v; }
 };
 
+#define PIN0	0
+#define PIN1	1
+#define PIN2	2
+#define PIN3	3
+#define PIN4	4
+#define PIN5	5
+#define PIN6	6
+#define PIN7	7
+
+#define CREATE_VIRTUAL_PORT(name)	struct name \
+									{ \
+										static uint8_t port() { return value; } \
+										static void port(uint8_t v) { value = v; } \
+										static uint8_t pin() { return value; } \
+										static void pin(uint8_t v) { value = v; } \
+										static uint8_t dir() { return direction; } \
+										static void dir(uint8_t v) { direction = v; } \
+										static uint8_t	value; \
+										static uint8_t	direction; }; \
+										uint8_t name::value = 0; \
+										uint8_t name::direction = 0; 
+
+
 template <typename Port, int pin>
 struct Pin
 {

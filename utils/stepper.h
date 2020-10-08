@@ -80,14 +80,16 @@ template <typename StepPin, typename DirPin, typename EnablePin> class Stepper {
 			__A_x20000  = (uint16_t)(__ALPHA*(float)20000);
 			m_state.max_delay = __A_T_x100 / 140;				
 			
-			LOG("Stepper precalc:");
-					
-			LOG("T1_FREQ        %lu",  T1_FREQ);
-			LOG("T1_FREQ_148    %u",   T1_FREQ_148);
-			LOG("__ALPHA        %lf",  __ALPHA);
-			LOG("__A_T_x100     %lu", __A_T_x100);
-			LOG("__A_SQ         %lu", __A_SQ);
-			LOG("__A_x20000     %u",  __A_x20000);			
+			LOG("STEPPER PRECALC");			
+			LOG("-----------------------------------");
+								
+			LOG("T1_FREQ     %10lu",  T1_FREQ);
+			LOG("T1_FREQ_148 %10u",   T1_FREQ_148);
+			LOG("__ALPHA     %10lf",  __ALPHA);
+			LOG("__A_T_x100  %10lu", __A_T_x100);
+			LOG("__A_SQ      %10lu", __A_SQ);
+			LOG("__A_x20000  %10u",  __A_x20000);
+			LOG("-----------------------------------");			
 		}
 		
 		void	setHardwareParameters(uint16_t stepsPerTurn, uint8_t feedPerTurn) {

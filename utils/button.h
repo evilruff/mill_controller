@@ -12,28 +12,49 @@
 
 #include "utils.h"
 #include "ports.h"
+#include "clock.h"
 
 #define		Pressed		1
 #define		Released	0
 
 typedef void (*buttonEvent)(void);
 
-template <typename InputPin> class Button {
+class NoDelayedClick {
+	public:
+		NoDelayedClick(Clock *) {};
+		void		restart() {};		
+		uint8_t		isExpired(uint16_t) const { return 0; };		
+		uint16_t	elapsed() const { return 0; };
+};
+
+
+template <typename InputPin, typename DelayedTimer = NoDelayedClick > class Button {
 
 	public:
-		Button() {
+	
+		Button(uint16_t longClickDelay = 1000, Clock * pClock = NULL):
+			m_delay(pClock) {
+			
 				m_state  = 0;
 				m_buffer = 0;
 				m_mask	 = 0x0F; // default to 4
+				m_fired	 = 0;
 
 				onPressed  = NULL;
 				onReleased = NULL;
 				onClicked  = NULL;
+				onLongClicked = NULL;
+				
+				m_longClickDelay = longClickDelay;				
 		}		
 		
 		void    setup() {
 			InputPin::make_input();
 			InputPin::pullup();
+		}
+		
+		void	setLongClickDelay(uint16_t d) {
+			m_longClickDelay - d;
 		}
 		
 		void	tick() {
@@ -48,11 +69,11 @@ template <typename InputPin> class Button {
 						if (onReleased) {
 							onReleased();
 						}
-						
-						if (onClicked) {
+												
+						if (!m_fired && onClicked) {
 							onClicked();
 						}
-						
+												
 						return;
 					}
 				}
@@ -60,12 +81,21 @@ template <typename InputPin> class Button {
 				if (!d) { // on
 					if (!m_state) {
 						m_state = 1; // state changed;
+						m_fired = 0;
+						m_delay.restart();
 						
 						if (onPressed) {
 							onPressed();
 						}
 						
 						return;
+					} else {
+						if (!m_fired && m_delay.isExpired(m_longClickDelay)) {
+							m_fired = 1;
+							if (onLongClicked) {
+								onLongClicked();
+							}
+						}
 					}
 				}
 		}
@@ -83,13 +113,18 @@ template <typename InputPin> class Button {
 		buttonEvent		onPressed;
 		buttonEvent		onReleased;
 		buttonEvent		onClicked;
+		buttonEvent		onLongClicked;
 		
 	protected:
 
 		uint8_t			m_mask;	
 		uint8_t			m_buffer;	
-		uint8_t			m_state;				
+		uint8_t			m_state;		
 		
+		DelayedTimer	m_delay;	
+		uint16_t		m_longClickDelay;	
+		
+		uint8_t			m_fired;	
 };
 
 

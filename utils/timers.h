@@ -11,17 +11,29 @@
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
-
-
 #include "utils.h"
 
-typedef uint8_t (*setupTimerFunc)(uint16_t desiredFrequency, uint8_t autostart, uint8_t disableInterrupts);
+#define TIMER_16BIT	1
+#define TIMER_8BIT	0
+
+typedef void (*setupTimerFuncFreq)( uint32_t  desiredFrequency );
+typedef void (*setupTimerFunc)( uint8_t prescaler, uint8_t cmp );
 typedef void (*startTimerFunc)();
 typedef void (*stopTimerFunc)();
 
-uint8_t setupTimer0(uint16_t desiredFrequency, uint8_t autostart = True, uint8_t disableInterrupts = True);
+typedef struct {
+	setupTimerFunc	setup;
+	startTimerFunc	start;
+	stopTimerFunc	stop;
+} timerDefinition;
+
+uint16_t	calculatePrescaler(uint32_t		desiredFrequency, uint8_t & ocrMask, uint8_t & counter, uint8_t type);
+	
+void setupTimer0( uint32_t  desiredFrequency );
+void setupTimer0( uint8_t prescaler, uint8_t cmp );
 void startTimer0();
 void stopTimer0();
 
+extern timerDefinition	Timer0;
 
 #endif /* TIMERS_H_ */

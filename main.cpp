@@ -9,6 +9,8 @@
 #include <avr/interrupt.h>
 #include <stdio.h>
 
+#include <avr/pgmspace.h>
+
 #include "button.h"
 #include "encoder.h"
 #include "utils.h"
@@ -20,6 +22,8 @@
 #include "defaults.h"
 #include "settings.h"
 #include "logger.h"
+#include "clock.h"
+#include "joystick.h"
 
 #define		DISPLAY_MODE_KEEP	0
 #define		DISPLAY_MODE_FEED	1
@@ -27,21 +31,21 @@
 #define		DISPLAY_MODE_TP		3
 
 
-	
-void updateDisplay(uint8_t left, uint8_t right);
-void initHardware();
-void encoderButtonPressed();
-void encoder0Rotated(int8_t direction, int16_t currentValue);
-void encoder1Rotated(int8_t direction, int16_t currentValue);
+Clock	clock(100, Timer0);
 
 Encoder<Pin<PortC, PINC3>, Pin<PortC, PINC4> > encoder0;
 Encoder<Pin<PortB, PINB1>, Pin<PortB, PINB0> > encoder1;
 
-Button< Pin<PortC, PINC5> >	encoderSwitch;
+Button< Pin<PortC, PINC5>, Delay >	encoderSwitch(BUTTON_LONG_PRESS_DELAY, &clock);
+
+CREATE_VIRTUAL_PORT(PanelButtons);
+CREATE_VIRTUAL_PORT(PanelLEDS);
 
 TM1638< Pin<PortC, PINC0> /*STB*/, 
 		Pin<PortC, PINC1> /*CLK*/,
-		Pin<PortC, PINC2> /*DIO*/ >	tm1638;
+		Pin<PortC, PINC2> /*DIO*/,
+		PanelButtons,
+		PanelLEDS >	tm1638;
 		
 Pin<PortD, PIND2>		DiagnosticPin;
 
@@ -51,14 +55,80 @@ Stepper< Pin<PortD, PIND3> /* STEP	 */,
 		 
 Settings<FirmwareSettings>		settings(&defaultSettings);	
 
+
+Button< Pin<PanelButtons, PIN0>, Delay >	PanelButton1(BUTTON_LONG_PRESS_DELAY, &clock);
+Button< Pin<PanelButtons, PIN1>, Delay >	PanelButton2(BUTTON_LONG_PRESS_DELAY, &clock);
+Button< Pin<PanelButtons, PIN2>, Delay >	PanelButton3(BUTTON_LONG_PRESS_DELAY, &clock);
+Button< Pin<PanelButtons, PIN3>, Delay >	PanelButton4(BUTTON_LONG_PRESS_DELAY, &clock);
+Button< Pin<PanelButtons, PIN4>, Delay >	PanelButton5(BUTTON_LONG_PRESS_DELAY, &clock);
+Button< Pin<PanelButtons, PIN5>, Delay >	PanelButton6(BUTTON_LONG_PRESS_DELAY, &clock);
+Button< Pin<PanelButtons, PIN6>, Delay >	PanelButton7(BUTTON_LONG_PRESS_DELAY, &clock);
+Button< Pin<PanelButtons, PIN7>, Delay >	PanelButton8(BUTTON_LONG_PRESS_DELAY, &clock);
+
+Button< Pin<PortB, PINB4> >	Limit1;
+Button< Pin<PortB, PINB5> >	Limit2;
+
+Joystick< Pin<PortB, PINB2>,  // left
+		  Pin<PortB, PINB3>,  // right
+		  Pin<PortD, PIND7>,  // top
+		  Pin<PortD, PIND6> > /*bottom*/	joystick;
+
+Pin<PanelLEDS, PIN0>		PanelLed1;
+Pin<PanelLEDS, PIN1>		PanelLed2;
+Pin<PanelLEDS, PIN2>		PanelLed3;
+Pin<PanelLEDS, PIN3>		PanelLed4;
+Pin<PanelLEDS, PIN4>		PanelLed5;
+Pin<PanelLEDS, PIN5>		PanelLed6;
+Pin<PanelLEDS, PIN6>		PanelLed7;
+Pin<PanelLEDS, PIN7>		PanelLed8;
+
 Logger	logger(uart0_puts);	
 //------------------------------------------------------
+void updateDisplay(uint8_t left, uint8_t right);
+void initHardware();
+void encoderButtonPressed();
+void encoderButtonLongPressed();
+
+void panelButton1Pressed();
+void panelButton1LongPressed();
+void panelButton2Pressed();
+void panelButton2LongPressed();
+void panelButton3Pressed();
+void panelButton3LongPressed();
+void panelButton4Pressed();
+void panelButton4LongPressed();
+void panelButton5Pressed();
+void panelButton5LongPressed();
+void panelButton6Pressed();
+void panelButton6LongPressed();
+void panelButton7Pressed();
+void panelButton7LongPressed();
+void panelButton8Pressed();
+void panelButton8LongPressed();
+
+void encoder0Rotated(int8_t direction, int16_t currentValue);
+void encoder1Rotated(int8_t direction, int16_t currentValue);
+
+
+void limit1Pressed();
+void limit1Released();
+void limit2Pressed();
+void limit2Released();
+
+void onJoystickLeft();
+void onJoystickRight();
+void onJoystickTop();
+void onJoystickBottom();
+void onJoystickNeutral();
+
+//------------------------------------------------------
+
 
 int main(void)
 {			
 	uart_init(UART_BAUD_SELECT(115200, 16000000UL));
 	
-	LOG("------------ FIRMWARE Started --------------- ");
+	LOG(PSTR("-------- FIRMWARE Started ---------"));
 	
 	/*if (!settings.load()) {
 		LOG("Settings invalid, reset to default, storing");
@@ -66,36 +136,64 @@ int main(void)
 	} else {	
 		LOG("Settings loaded, EEPROM.. Ok");
 	}*/
-	
-	initHardware();
 			
+	initHardware();
+					
 	updateDisplay(DISPLAY_MODE_FEED, DISPLAY_MODE_CP);
-    	
+    
+	uint8_t previousStateLed = 0x00;
+				
 	while (1) 
     {
-		encoderSwitch.tick();
 		encoder0.tick();
 		encoder1.tick();	
-		tm1638.readButtons();
+		
+		tm1638.tick();
 		
 		DiagnosticPin.toggle();		
 		
-		updateDisplay(DISPLAY_MODE_KEEP, DISPLAY_MODE_CP);	
+		encoderSwitch.tick();		
+		
+		PanelButton1.tick();
+		PanelButton2.tick();
+		PanelButton3.tick();
+		PanelButton4.tick();
+		PanelButton5.tick();
+		PanelButton6.tick();
+		PanelButton7.tick();
+		PanelButton8.tick();
+		
+		joystick.tick();		
+		
+		Limit1.tick();
+		Limit2.tick();
+		
+		updateDisplay(DISPLAY_MODE_KEEP, DISPLAY_MODE_CP);			
     }
 }
 //------------------------------------------------------
 void initHardware() {
 	
+	clock.start();
+	
 	encoderSwitch.setup();
 	encoder0.setup();
 	encoder1.setup();	
 	
-	LOG("Stepper params:");
-	uint16_t	v = 10;
-	LOG("test:%d mm", v);
-	LOG("Steps per turn:%d, feed per turn:%d mm", settings.d.stepsPerTurn, settings.d.feedPerTurn);
-	LOG("Step width:%d us, Dir change delay:%d us", settings.d.stepWidth, settings.d.dirDelay);
-	LOG("Minimum acceleration speed:%d, Maximum speed:%d", settings.d.minAccelFrequency, settings.d.maxFrequency);
+	Limit1.setup();
+	Limit2.setup();
+	
+	joystick.setup();
+		
+	LOG_P("STEPPERS PARAMS");
+	LOG_P("-----------------------------------");
+	LOG_P("Steps per turn:  %6d", settings.d.stepsPerTurn);
+	LOG_P("Feed per turn:   %6d mm", settings.d.feedPerTurn);
+	LOG_P("Step width:      %6d us", settings.d.stepWidth);
+	LOG_P("Dir change delay:%6d us", settings.d.dirDelay);	
+	LOG_P("Min accel speed: %6d Hz", settings.d.minAccelFrequency);
+	LOG_P("Maximum speed:   %6d Hz", settings.d.maxFrequency);
+	LOG_P("-----------------------------------");
 	
 	stepper.setHardwareParameters( settings.d.stepsPerTurn, settings.d.feedPerTurn);		
 	stepper.setup();
@@ -109,25 +207,177 @@ void initHardware() {
 	
 	tm1638.init(7);
 		
-	encoder0.onTicksChanged  = encoder0Rotated;
-	encoder1.onTicksChanged  = encoder1Rotated;
-	encoderSwitch.onClicked  = encoderButtonPressed;
+	encoder0.onTicksChanged		= encoder0Rotated;
+	encoder1.onTicksChanged		= encoder1Rotated;
 	
+	encoderSwitch.onClicked		= encoderButtonPressed;
+	encoderSwitch.onLongClicked = encoderButtonLongPressed;
+	
+	PanelButton1.onClicked		= panelButton1Pressed;
+	PanelButton1.onLongClicked  = panelButton1LongPressed;
+	PanelButton2.onClicked		= panelButton2Pressed;
+	PanelButton2.onLongClicked  = panelButton2LongPressed;
+	PanelButton3.onClicked		= panelButton3Pressed;
+	PanelButton3.onLongClicked  = panelButton3LongPressed;
+	PanelButton4.onClicked		= panelButton4Pressed;
+	PanelButton4.onLongClicked  = panelButton4LongPressed;
+	PanelButton5.onClicked		= panelButton5Pressed;
+	PanelButton5.onLongClicked  = panelButton5LongPressed;
+	PanelButton6.onClicked		= panelButton6Pressed;
+	PanelButton6.onLongClicked  = panelButton6LongPressed;
+	PanelButton7.onClicked		= panelButton7Pressed;
+	PanelButton7.onLongClicked  = panelButton7LongPressed;
+	PanelButton8.onClicked		= panelButton8Pressed;
+	PanelButton8.onLongClicked  = panelButton8LongPressed;
+	
+	joystick.onLeft				= onJoystickLeft;
+	joystick.onRight			= onJoystickRight;
+	joystick.onTop				= onJoystickTop;
+	joystick.onBottom			= onJoystickBottom;
+	joystick.onNeutral			= onJoystickNeutral;
+	
+	Limit1.onPressed  = limit1Pressed;
+	Limit1.onReleased = limit1Released;
+	Limit2.onPressed  = limit2Pressed;
+	Limit2.onReleased = limit2Released;
+
+
 	DiagnosticPin.make_output();
 		
 	
 }
 //------------------------------------------------------
 void encoderButtonPressed() {
-	uart_puts("Encoder Button pressed\r\n");
+	LOG_P("Encoder Button pressed");
 }
 //------------------------------------------------------
+void encoderButtonLongPressed() {
+	LOG_P("Encoder Button LONG pressed");
+}
+//------------------------------------------------------
+void panelButton1Pressed() {
+	LOG_P("Panel Button 1 pressed");
+	PanelLed1.set_high();
+}
+//------------------------------------------------------
+void panelButton1LongPressed() {
+	LOG_P("Panel LONG Button 1 pressed");
+	PanelLed1.set_low();
+}
+//------------------------------------------------------
+void panelButton2Pressed() {
+	PanelLed2.set_high();
+	LOG_P("Panel Button 2 pressed");	
+}
+//------------------------------------------------------
+void panelButton2LongPressed() {
+	PanelLed2.set_low();
+	LOG_P("Panel LONG Button 2 pressed");
+}
+//------------------------------------------------------
+void panelButton3Pressed() {
+	PanelLed3.set_high();
+	LOG_P("Panel Button 3 pressed");
+}
+//------------------------------------------------------
+void panelButton3LongPressed() {
+	PanelLed3.set_low();
+	LOG_P("Panel LONG Button 3 pressed");
+}
+//------------------------------------------------------
+void panelButton4Pressed() {
+	PanelLed4.set_high();
+	LOG_P("Panel Button 4 pressed");
+}
+//------------------------------------------------------
+void panelButton4LongPressed() {
+	PanelLed4.set_low();
+	LOG_P("Panel LONG Button 4 pressed");
+}
+//------------------------------------------------------
+void panelButton5Pressed() {
+	PanelLed5.set_high();
+	LOG_P("Panel Button 5 pressed");
+}
+//------------------------------------------------------
+void panelButton5LongPressed() {
+	PanelLed5.set_low();
+	LOG_P("Panel LONG Button 5 pressed");
+}
+//------------------------------------------------------
+void panelButton6Pressed() {
+	PanelLed6.set_high();
+	LOG_P("Panel Button 6 pressed");
+}
+//------------------------------------------------------
+void panelButton6LongPressed() {
+	PanelLed6.set_low();
+	LOG_P("Panel LONG Button 6 pressed");
+}
+//------------------------------------------------------
+void panelButton7Pressed() {
+	PanelLed7.set_high();	
+	LOG_P("Panel Button 7 pressed");
+}
+//------------------------------------------------------
+void panelButton7LongPressed() {
+	PanelLed7.set_low();
+	LOG_P("Panel LONG Button 7 pressed");
+}
+//------------------------------------------------------
+void panelButton8Pressed() {
+	LOG_P("Panel Button 8 pressed");
+	PanelLed8.set_high();
+}
+//------------------------------------------------------
+void panelButton8LongPressed() {
+	LOG_P("Panel LONG Button 8 pressed");
+	PanelLed8.set_low();
+}
+//------------------------------------------------------
+void limit1Pressed() {
+	LOG_P("Limit 1 pressed");
+}
+//------------------------------------------------------
+void limit1Released() {
+	LOG_P("Limit 1 released");
+}
+//------------------------------------------------------
+void  limit2Pressed() {
+	LOG_P("Limit 2 pressed");
+}
+//------------------------------------------------------
+void limit2Released() {
+	LOG_P("Limit 2 released");
+}
+//------------------------------------------------------
+void onJoystickLeft() {
+	LOG_P("Joystick left");
+}
+//------------------------------------------------------
+void onJoystickRight() {
+	LOG_P("Joystick right");
+}
+//------------------------------------------------------
+void onJoystickTop() {
+	LOG_P("Joystick top");
+}
+//------------------------------------------------------
+void onJoystickBottom() {
+	LOG_P("Joystick bottom");
+}
+//------------------------------------------------------
+void onJoystickNeutral() {
+	LOG_P("Joystick neutral");
+}
+//------------------------------------------------------
+
 void encoder0Rotated(int8_t direction, int16_t currentValue) {
 	
 	if (direction > 0) {
-		LOG( "Enc0 CW: %i", currentValue);
+		LOG_P( "Enc0 CW: %i", currentValue);
 	} else {
-		LOG( "Enc0 CCW: %i", currentValue);
+		LOG_P( "Enc0 CCW: %i", currentValue);
 	}
 	
 	#if 0	
@@ -213,3 +463,8 @@ ISR(TIMER1_COMPA_vect) {
 	stepper.doStep();
 }
 //------------------------------------------------------
+ISR(TIMER0_COMPA_vect) {
+	clock.tick();
+}
+//------------------------------------------------------
+

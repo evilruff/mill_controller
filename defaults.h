@@ -9,6 +9,8 @@
 #ifndef DEFAULTS_H_
 #define DEFAULTS_H_
 
+#define BUTTON_LONG_PRESS_DELAY		1000
+
 typedef struct {
 	uint8_t		stepWidth;
 	uint8_t		dirDelay;
