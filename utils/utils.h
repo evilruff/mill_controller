@@ -25,4 +25,6 @@ unsigned long sqrt(unsigned long x);
 #define MSBFIRST	1
 //------------------
 
+extern void	emptyHandler();
+
 #endif /* UTILS_H_ */

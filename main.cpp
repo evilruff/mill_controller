@@ -7,9 +7,10 @@
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/pgmspace.h>
+
 #include <stdio.h>
 
-#include <avr/pgmspace.h>
 
 #include "button.h"
 #include "encoder.h"
@@ -24,19 +25,14 @@
 #include "logger.h"
 #include "clock.h"
 #include "joystick.h"
-
-#define		DISPLAY_MODE_KEEP	0
-#define		DISPLAY_MODE_FEED	1
-#define		DISPLAY_MODE_CP		2
-#define		DISPLAY_MODE_TP		3
-
+#include "logic.h"
 
 Clock	clock(100, Timer0);
 
-Encoder<Pin<PortC, PINC3>, Pin<PortC, PINC4> > encoder0;
-Encoder<Pin<PortB, PINB1>, Pin<PortB, PINB0> > encoder1;
+Encoder<Pin<PortC, PINC4>, Pin<PortC, PINC5> > encoder0;
+Encoder<Pin<PortD, PIND6>, Pin<PortD, PIND7> > encoder1;
 
-Button< Pin<PortC, PINC5>, Delay >	encoderSwitch(BUTTON_LONG_PRESS_DELAY, &clock);
+Button< Pin<PortC, PINC3>, Delay >	encoderSwitch(BUTTON_LONG_PRESS_DELAY, &clock);
 
 CREATE_VIRTUAL_PORT(PanelButtons);
 CREATE_VIRTUAL_PORT(PanelLEDS);
@@ -55,7 +51,6 @@ Stepper< Pin<PortD, PIND3> /* STEP	 */,
 		 
 Settings<FirmwareSettings>		settings(&defaultSettings);	
 
-
 Button< Pin<PanelButtons, PIN0>, Delay >	PanelButton1(BUTTON_LONG_PRESS_DELAY, &clock);
 Button< Pin<PanelButtons, PIN1>, Delay >	PanelButton2(BUTTON_LONG_PRESS_DELAY, &clock);
 Button< Pin<PanelButtons, PIN2>, Delay >	PanelButton3(BUTTON_LONG_PRESS_DELAY, &clock);
@@ -68,10 +63,10 @@ Button< Pin<PanelButtons, PIN7>, Delay >	PanelButton8(BUTTON_LONG_PRESS_DELAY, &
 Button< Pin<PortB, PINB4> >	Limit1;
 Button< Pin<PortB, PINB5> >	Limit2;
 
-Joystick< Pin<PortB, PINB2>,  // left
-		  Pin<PortB, PINB3>,  // right
-		  Pin<PortD, PIND7>,  // top
-		  Pin<PortD, PIND6> > /*bottom*/	joystick;
+Joystick< Pin<PortB, PINB0>,  // left
+		  Pin<PortB, PINB1>,  // right
+		  Pin<PortB, PINB2>,  // top
+		  Pin<PortB, PINB3> > /*bottom*/	joystick;
 
 Pin<PanelLEDS, PIN0>		PanelLed1;
 Pin<PanelLEDS, PIN1>		PanelLed2;
@@ -82,9 +77,12 @@ Pin<PanelLEDS, PIN5>		PanelLed6;
 Pin<PanelLEDS, PIN6>		PanelLed7;
 Pin<PanelLEDS, PIN7>		PanelLed8;
 
-Logger	logger(uart0_puts);	
+Logger	logger(uart0_puts);
+
+Logic	logic(&clock);
+
 //------------------------------------------------------
-void updateDisplay(uint8_t left, uint8_t right);
+void updateDisplay();
 void initHardware();
 void encoderButtonPressed();
 void encoderButtonLongPressed();
@@ -122,7 +120,7 @@ void onJoystickBottom();
 void onJoystickNeutral();
 
 //------------------------------------------------------
-
+void doOnce();
 
 int main(void)
 {			
@@ -139,19 +137,23 @@ int main(void)
 			
 	initHardware();
 					
-	updateDisplay(DISPLAY_MODE_FEED, DISPLAY_MODE_CP);
+	updateDisplay();
     
 	uint8_t previousStateLed = 0x00;
 				
+	doOnce();
+					
 	while (1) 
     {
+		joystick.tick();			
+			
 		encoder0.tick();
-		encoder1.tick();	
+		encoder1.tick();			
 		
 		tm1638.tick();
 		
 		DiagnosticPin.toggle();		
-		
+
 		encoderSwitch.tick();		
 		
 		PanelButton1.tick();
@@ -163,13 +165,27 @@ int main(void)
 		PanelButton7.tick();
 		PanelButton8.tick();
 		
-		joystick.tick();		
 		
 		Limit1.tick();
 		Limit2.tick();
+
+		updateDisplay();			
 		
-		updateDisplay(DISPLAY_MODE_KEEP, DISPLAY_MODE_CP);			
+		logic.tick();
     }
+}
+//------------------------------------------------------
+void doOnce() {
+	joystick.tick();
+	switch(joystick.state()) {
+		case JOYSTICK_BOTTOM: logic.setMode(Logic::ModeAuto); break;
+		case JOYSTICK_TOP: logic.setMode(Logic::ModeStep); break;
+		case JOYSTICK_LEFT: logic.setMode(Logic::ModeToNeutral); break;
+		case JOYSTICK_RIGHT: logic.setMode(Logic::ModeToNeutral); break;
+		case JOYSTICK_NEUTRAL: logic.setMode(Logic::ModeFeed); break;
+	}
+	
+	logic.setInitialDisplayMode();	
 }
 //------------------------------------------------------
 void initHardware() {
@@ -241,10 +257,7 @@ void initHardware() {
 	Limit2.onPressed  = limit2Pressed;
 	Limit2.onReleased = limit2Released;
 
-
-	DiagnosticPin.make_output();
-		
-	
+	DiagnosticPin.make_output();		
 }
 //------------------------------------------------------
 void encoderButtonPressed() {
@@ -253,6 +266,7 @@ void encoderButtonPressed() {
 //------------------------------------------------------
 void encoderButtonLongPressed() {
 	LOG_P("Encoder Button LONG pressed");
+	stepper.setCurrentPosition(0);
 }
 //------------------------------------------------------
 void panelButton1Pressed() {
@@ -326,17 +340,17 @@ void panelButton7LongPressed() {
 }
 //------------------------------------------------------
 void panelButton8Pressed() {
-	LOG_P("Panel Button 8 pressed");
-	PanelLed8.set_high();
+	LOG_P("Panel Button 8 pressed");	
+	logic.nextPositionScale();
 }
 //------------------------------------------------------
 void panelButton8LongPressed() {
 	LOG_P("Panel LONG Button 8 pressed");
-	PanelLed8.set_low();
 }
 //------------------------------------------------------
-void limit1Pressed() {
+void limit1Pressed() {	
 	LOG_P("Limit 1 pressed");
+	stepper.emergencyStop();
 }
 //------------------------------------------------------
 void limit1Released() {
@@ -345,118 +359,160 @@ void limit1Released() {
 //------------------------------------------------------
 void  limit2Pressed() {
 	LOG_P("Limit 2 pressed");
+	stepper.emergencyStop();
 }
 //------------------------------------------------------
 void limit2Released() {
 	LOG_P("Limit 2 released");
 }
 //------------------------------------------------------
-void onJoystickLeft() {
-	LOG_P("Joystick left");
+void onJoystickLeft() {	
+	int32_t	steps = FEED_MAX_STEPS;		
+	stepper.move( steps, 500, 500, 5000);	
 }
 //------------------------------------------------------
 void onJoystickRight() {
-	LOG_P("Joystick right");
+	int32_t	steps = -FEED_MAX_STEPS;
+	stepper.move( steps, 500, 500, 5000);
 }
 //------------------------------------------------------
 void onJoystickTop() {
+	logic.setMode(Logic::ModeStep);	
+	stepper.stop();
 	LOG_P("Joystick top");
 }
 //------------------------------------------------------
 void onJoystickBottom() {
+	logic.setMode(Logic::ModeAuto);	
+	stepper.stop();
 	LOG_P("Joystick bottom");
 }
 //------------------------------------------------------
 void onJoystickNeutral() {
+	logic.setMode(Logic::ModeFeed);	
+	stepper.stop();
 	LOG_P("Joystick neutral");
 }
 //------------------------------------------------------
 
 void encoder0Rotated(int8_t direction, int16_t currentValue) {
 	
-	if (direction > 0) {
-		LOG_P( "Enc0 CW: %i", currentValue);
-	} else {
-		LOG_P( "Enc0 CCW: %i", currentValue);
+	switch(logic.mode()) {
+		case Logic::ModeStep:
+			if (direction < 0) 
+				logic.nextStepInterval();
+			else 
+				logic.previousStepInterval();										
+		break;		
 	}
+			
+	#if 0
+		if (direction > 0) {
+			LOG_P( "Enc0 CW: %i", currentValue);
+		} else {
+			LOG_P( "Enc0 CCW: %i", currentValue);
+		}
+	#endif
 	
 	#if 0	
 		stepper.setFeed(currentValue);
 		sprintf(str, "Feed: %i  Speed:%lu\r\n", currentValue, stepper.speed());
-	#endif
-	
-	updateDisplay(DISPLAY_MODE_FEED, DISPLAY_MODE_CP);		
+	#endif	
 }
 //------------------------------------------------------
 void encoder1Rotated(int8_t direction, int16_t currentValue) {	
-	stepper.move( direction*1500, 200, 200, 5000);
 	
-	updateDisplay(DISPLAY_MODE_TP, DISPLAY_MODE_CP);		
+	switch(logic.mode()) {
+		case Logic::ModeStep: {
+			logic.makeStep(direction);
+			
+			uint32_t	steps = logic.ticksPerStep( stepper.feedPerTurn(), stepper.stepsPerTurn() );
+			
+			stepper.move( direction*steps, 500, 500, 5000);
+		}
+		break;
+	}
+	
+	// updateDisplay(DISPLAY_MODE_TP, DISPLAY_MODE_CP);		
 }
 //------------------------------------------------------
 void formatDisplayValue(uint8_t type, char * buffer) {
-	
-	static int32_t	previouslyShownCurrentPosition = 0xFFFF;
-	
+		
 	*buffer = 0;
 	switch (type) {
 		case DISPLAY_MODE_FEED:
-		sprintf(buffer, "F.%3i", stepper.feed());
+		sprintf(buffer, "F.%3i    ", stepper.feed());
 		break;
 		case DISPLAY_MODE_CP: {
 			int32_t	p = stepper.currentPosition();
-			int16_t pMM = stepper.toMetric10th(p);
-			
-			if (previouslyShownCurrentPosition != p) {
-				if (pMM < -999) {
-					sprintf(buffer, "%4i", (int16_t)(pMM / 10));
-				} else {
-					sprintf(buffer, "%3i.%d", (int16_t)(pMM / 10), abs((int16_t)(pMM % 10)));
+			if (logic.previouslyShownPosition() != p) {
+								
+				int32_t converted = stepper.toMetric(p, logic.positionScaleValue());											
+					
+				switch (logic.positionScale()) {
+					case Logic::PositionScale1:
+						sprintf(buffer, "%8i", (int16_t)(converted));
+					break;
+					case Logic::PositionScale10:				
+						sprintf(buffer, "%7i.%0d", (int16_t)(converted/10), abs((int16_t)(converted % 10)));			
+					break;
+					case Logic::PositionScale100:
+						sprintf(buffer, "%6i.%02d", (int16_t)(converted/100), abs((int16_t)(converted % 100)));
+					break;
 				}
-				previouslyShownCurrentPosition = p;
+			
+				logic.setPrevioslyShownPosition(p);
 			}
 		}
 		break;
-		case DISPLAY_MODE_TP:{
-			int32_t	p = stepper.targetPosition();	
-			int16_t pMM = stepper.toMetric10th(p);
-					
-			if (pMM < -999) {
-				sprintf(buffer, "%4i", (int16_t)(pMM / 10));
-			} else {
-				sprintf(buffer, "%3i.%d", (int16_t)(pMM / 10), abs((int16_t)(pMM % 10)));		
+		case DISPLAY_MODE_TP:{		
+			sprintf(buffer,"        ");	
+		}
+		break;
+		case DISPLAY_MODE_CLEAR: {
+			sprintf(buffer,"        ");
+		}
+		break;
+		case DISPLAY_MODE_MODE: {
+			switch (logic.mode()) {
+				case Logic::ModeUndef:
+					strcpy_P(buffer, PSTR("----    "));
+				break;
+				case Logic::ModeStep:
+					strcpy_P(buffer, PSTR("StEP    "));
+				break;				
+				case Logic::ModeFeed:
+					strcpy_P(buffer, PSTR("FEED    "));
+				break;
+				case Logic::ModeAuto:
+					strcpy_P(buffer, PSTR("AUtO    "));	
+				break;
+				case Logic::ModeToNeutral:
+					strcpy_P(buffer, PSTR("[--]    "));	
+				break;
 			}
+		}
+		break;
+		case DISPLAY_MODE_STEP_INTERVAL: {
+			strcpy_P(buffer, logic.currentStepIntervalPGMString());
 		}
 		break;
 	}
 }
 //------------------------------------------------------
-void updateDisplay(uint8_t left, uint8_t right) {
-	char str1[16];
-	char str2[16];
+void updateDisplay() {
+	static char buffer1[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+	static char buffer2[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 	
-	char f = 0;
-	formatDisplayValue(left, str1);	
-	if (*str1) {
-		f = 1;
-		tm1638.setString(0, str1);
-	}
+	static char * bufferPtr = buffer1;
 		
-	formatDisplayValue(right, str2);
-	
-	if (*str2) {
-		f = 1;
-		tm1638.setString(4, str2);
+	formatDisplayValue(logic.displayMode(), bufferPtr);	
+	if (*bufferPtr) {
+		if (strcmp(bufferPtr, bufferPtr == buffer1 ? buffer2 : buffer1)) {
+			tm1638.setString(0, bufferPtr);
+			bufferPtr = (bufferPtr == buffer1) ? buffer2 : buffer1;
+		}
 	}
-
-#if 0	
-	if (f) {
-	char buf[32];			
-	sprintf(buf, "[%s] [%s]\r\n", str1, str2);
-	uart_puts(buf);		
-	}
-#endif
-
 }
 //------------------------------------------------------
 ISR(TIMER1_COMPA_vect) {

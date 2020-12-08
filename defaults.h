@@ -10,6 +10,8 @@
 #define DEFAULTS_H_
 
 #define BUTTON_LONG_PRESS_DELAY		1000
+#define MODE_SWITCH_DELAY			2000
+#define FEED_MAX_STEPS				1000000000
 
 typedef struct {
 	uint8_t		stepWidth;

@@ -36,3 +36,6 @@ unsigned long sqrt(unsigned long x) {
 		return xr;
 	}
 }
+
+
+void	emptyHandler() {};

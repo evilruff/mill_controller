@@ -61,7 +61,8 @@ template <typename StepPin, typename DirPin, typename EnablePin> class Stepper {
 			m_stepCount = 0;			
 			m_state.max_delay = 100;		
 			
-			m_maximumSpeed = 0;		
+			m_maximumSpeed = 0;	
+			m_currentPosition = 0;	
 		}
 		
 		void	setMinimumAccelerationSpeed(uint16_t s) {
@@ -98,6 +99,9 @@ template <typename StepPin, typename DirPin, typename EnablePin> class Stepper {
 			
 			precalc(stepsPerTurn);			
 		}
+		
+		uint16_t	feedPerTurn()  const { return m_feedPerTurn; };
+		uint16_t	stepsPerTurn() const { return m_stepsPerTurn; };	
 		
 		void	setup() {
 			
@@ -195,7 +199,11 @@ template <typename StepPin, typename DirPin, typename EnablePin> class Stepper {
 					new_step_delay = m_state.step_delay - (((2 * (long)m_state.step_delay) + rest)/(4 * m_state.accel_count + 1));
 					rest = ((2 * (long)m_state.step_delay)+rest)%(4 * m_state.accel_count + 1);
 					// Check if we at last step
-					if ((m_state.accel_count >= 0) || (new_step_delay > m_state.max_delay)) {
+					if (new_step_delay > m_state.max_delay) {
+						new_step_delay = m_state.max_delay;
+					}
+					
+					if (m_state.accel_count >= 0) {
 						  m_state.run_state = STOP;
 					}
 					break;
@@ -219,6 +227,8 @@ template <typename StepPin, typename DirPin, typename EnablePin> class Stepper {
 			_delay_loop_2(m_stepDelay);
 			#endif
 			StepPin::set_low();
+			
+			m_currentPosition += m_state.dir ? 1 : -1;
 		}
 		
 		void	setEnabled(uint8_t b) {
@@ -226,7 +236,7 @@ template <typename StepPin, typename DirPin, typename EnablePin> class Stepper {
 			EnablePin::set_value(!b);
 		}
 		
-		void move(int16_t step, uint16_t accel, uint16_t decel, uint16_t speed) {
+		void move(int32_t step, uint16_t accel, uint16_t decel, uint16_t speed) {
 			 if (m_state.max_delay == 0)
 				return;
 
@@ -348,12 +358,45 @@ template <typename StepPin, typename DirPin, typename EnablePin> class Stepper {
 		}
 		
 		void	stop() {
-			
+			ATOMIC_BLOCK(ATOMIC_FORCEON)
+			{
+					 if ((m_state.run_state == RUN) || (m_state.run_state == ACCEL)) {
+							 m_state.decel_start = m_stepCount+1;
+							 return;
+					 }
+					 
+					 if (m_state.run_state == DECEL) {
+						 m_state.run_state = STOP;
+					 }			
+			}		
+		}
+		
+		void	emergencyStop() { // ignore accel
+			ATOMIC_BLOCK(ATOMIC_FORCEON)
+			{
+				m_state.run_state = STOP;
+			}
 		}
 		
 		int32_t		targetPosition() const { return 0; };
-		int32_t		currentPosition() const { return 0; };
-		uint32_t	toMetric10th(uint32_t v) const { return 0; };	
+		
+		int32_t		currentPosition() const {
+			ATOMIC_BLOCK(ATOMIC_FORCEON)
+			{					  
+				return m_currentPosition;
+			}
+		};
+		
+		void		setCurrentPosition(int32_t position) {
+			ATOMIC_BLOCK(ATOMIC_FORCEON)
+			{
+				m_currentPosition = position;
+			}
+		};
+		
+		int32_t	toMetric(uint32_t v,uint8_t scale=1) const { 
+			return v*(uint32_t)scale/((uint32_t)m_stepsPerTurn/(uint32_t)m_feedPerTurn); 
+		};	
 			
 		uint16_t	feed() const { return 0; };
 		void 		setFeed(uint16_t v) const {};	
@@ -369,15 +412,15 @@ template <typename StepPin, typename DirPin, typename EnablePin> class Stepper {
 			//! Period of next timer delay. At start this value set the accelration rate.
 			uint16_t step_delay;
 			//! What step_pos to start decelaration
-			uint32_t decel_start;
+			volatile uint32_t decel_start;
 			//! Sets deceleration rate.
-			int16_t decel_val;
+			volatile int16_t decel_val;
 			//! Minimum time delay (max speed)
 			uint16_t min_delay;
 			//! Maximum time delay (min speed)
 			uint16_t max_delay;			
 			//! Counter used when accelerateing/decelerateing to calculate step_delay.
-			int16_t accel_count;
+			volatile int16_t accel_count;
 		}	m_state;
 		
 		// Counting steps when moving.
@@ -391,6 +434,8 @@ template <typename StepPin, typename DirPin, typename EnablePin> class Stepper {
 		uint16_t			m_dirDelay;		
 		
 		uint16_t			m_maximumSpeed;
+		
+		volatile int32_t	m_currentPosition;			
 };
 
 #endif /* STEPPER_H_ */

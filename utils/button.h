@@ -27,6 +27,9 @@ class NoDelayedClick {
 		uint16_t	elapsed() const { return 0; };
 };
 
+#define		BUTTON_STATE_OFF	0x00
+#define		BUTTON_STATE_ON		0x01
+#define		BUTTON_STATE_FIRED	0x02
 
 template <typename InputPin, typename DelayedTimer = NoDelayedClick > class Button {
 
@@ -35,15 +38,14 @@ template <typename InputPin, typename DelayedTimer = NoDelayedClick > class Butt
 		Button(uint16_t longClickDelay = 1000, Clock * pClock = NULL):
 			m_delay(pClock) {
 			
-				m_state  = 0;
+				m_state  = BUTTON_STATE_OFF;
 				m_buffer = 0;
 				m_mask	 = 0x0F; // default to 4
-				m_fired	 = 0;
-
-				onPressed  = NULL;
-				onReleased = NULL;
-				onClicked  = NULL;
-				onLongClicked = NULL;
+				
+				onPressed     = emptyHandler;
+				onReleased    = emptyHandler;
+				onClicked     = emptyHandler;
+				onLongClicked = emptyHandler;
 				
 				m_longClickDelay = longClickDelay;				
 		}		
@@ -64,15 +66,12 @@ template <typename InputPin, typename DelayedTimer = NoDelayedClick > class Butt
 				
 				if (d & m_mask) { // off
 					if (m_state) {
-						m_state = 0; // state changed;
-						
-						if (onReleased) {
-							onReleased();
-						}
-												
-						if (!m_fired && onClicked) {
+						if (m_state == BUTTON_STATE_ON) {
 							onClicked();
-						}
+						}						
+						
+						m_state = BUTTON_STATE_OFF; // state changed;					
+						onReleased();
 												
 						return;
 					}
@@ -80,21 +79,14 @@ template <typename InputPin, typename DelayedTimer = NoDelayedClick > class Butt
 				
 				if (!d) { // on
 					if (!m_state) {
-						m_state = 1; // state changed;
-						m_fired = 0;
-						m_delay.restart();
-						
-						if (onPressed) {
-							onPressed();
-						}
-						
-						return;
-					} else {
-						if (!m_fired && m_delay.isExpired(m_longClickDelay)) {
-							m_fired = 1;
-							if (onLongClicked) {
-								onLongClicked();
-							}
+							m_state = BUTTON_STATE_ON; // state changed;
+							m_delay.restart();
+							onPressed();					
+							return;
+					} else if (m_state == BUTTON_STATE_ON) {
+						if (m_delay.isExpired(m_longClickDelay)) {
+							m_state = BUTTON_STATE_FIRED;							
+							onLongClicked();							
 						}
 					}
 				}

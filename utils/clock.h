@@ -73,14 +73,24 @@ class Delay {
 		Delay(Clock * clock):
 			m_clock(clock) {
 				m_start = m_clock->millis();	
+				m_started = 1;
 			}
-	
+		
 		void restart() {
 				m_start = m_clock->millis();	
+				m_started = 1;
 		}	
 		
+		void stop() {
+			m_started = 0;
+		}
+		
+		uint8_t isStarted() const {
+			return m_started;
+		}
+		
 		uint8_t	isExpired(uint16_t msPeriod) const {
-			return (m_clock->millis()-m_start > msPeriod);
+			return (m_started && (m_clock->millis()-m_start > msPeriod));
 		}
 		
 		uint16_t	elapsed() const {
@@ -89,6 +99,7 @@ class Delay {
 		
 	
 	protected:	
+		uint8_t			m_started;
 		Clock *			m_clock;
 		uint32_t		m_start;
 };
